@@ -24,4 +24,12 @@ contextBridge.exposeInMainWorld('api', {
 contextBridge.exposeInMainWorld('recorderAPI', {
   start: () => ipcRenderer.invoke('recorder:start'),
   stop: () => ipcRenderer.invoke('recorder:stop'),
+  loopback: {
+    start: () => ipcRenderer.invoke('loopback:start'),
+    stop: () => ipcRenderer.invoke('loopback:stop'),
+  },
+  mic: {
+    start: () => ipcRenderer.invoke('mic:start'),
+    stop: () => ipcRenderer.invoke('mic:stop'),
+  },
 });

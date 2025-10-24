@@ -44,6 +44,7 @@ function registerIpc(channel, handler) {
 /** @type {import('child_process').ChildProcess | null} */
 let currentRecorder = null;
 let currentOutputPath = null;
+let isUnifiedRecording = false;
 
 const createWindow = () => {
     const win = new BrowserWindow({
@@ -298,60 +299,54 @@ registerIpc('recording:start', async (_evt, payload) => {
     if (currentRecorder) {
         throw new Error('Recording already in progress');
     }
-    const bin = ensureFfmpegAvailable();
-    const engine = await detectInputEngine();
-    const devices = engine ? await listDevicesByEngine(engine) : { capture: ['default'], render: ['default'] };
-    if (!engine) {
-        throw new Error('Your FFmpeg binary does not support WASAPI or DirectShow inputs. Please install a full Windows build (e.g., Gyan.dev "ffmpeg-release-full") or add a system FFmpeg to PATH.');
-    }
     const s = await initStore();
     // Compute output path
     const saveDir = (payload && payload.savePath) || s.get('savePath');
         try {
             if (!existsSync(saveDir)) mkdirSync(saveDir, { recursive: true });
         } catch {}
-    const format = (payload && payload.format) || s.get('lastFormat') || 'mp3';
+    const format = 'wav'; // unified recorder outputs WAV for lossless mix
     const fileName = timestampFilename('Recording', format);
     const outPath = path.join(saveDir, fileName);
     currentOutputPath = outPath;
-
-    const args = buildFfmpegArgsStart({
-        engine,
-        micDevice: payload?.micDevice || s.get('micDevice'),
-        speakerDevice: payload?.speakerDevice || s.get('speakerDevice'),
-        outputPath: outPath,
-        format,
-        availableDevices: devices,
-    });
-
+    // On Windows, use unified audify-based recorder (loopback + mic)
+    if (process.platform === 'win32') {
+        try {
+            const res = await recorder.start({ outputPath: outPath });
+            isUnifiedRecording = true;
+            return { ok: true, outPath: res.outPath || outPath };
+        } catch (e) {
+            isUnifiedRecording = false;
+            throw e;
+        }
+    }
+    // Non-Windows fallback (kept for completeness): use previous FFmpeg path
+    const bin = ensureFfmpegAvailable();
+    const engine = await detectInputEngine();
+    const devices = engine ? await listDevicesByEngine(engine) : { capture: ['default'], render: ['default'] };
+    if (!engine) {
+        throw new Error('Your FFmpeg binary does not support WASAPI or DirectShow inputs.');
+    }
+    const args = buildFfmpegArgsStart({ engine, micDevice: s.get('micDevice'), speakerDevice: s.get('speakerDevice'), outputPath: outPath, format, availableDevices: devices });
     return new Promise((resolve, reject) => {
         const proc = spawn(bin, args, { windowsHide: true });
         currentRecorder = proc;
         let started = false;
         let stderr = '';
-        proc.stdout?.on('data', () => {});
         proc.stderr?.on('data', (chunk) => {
             const str = chunk.toString();
             stderr += str;
-            // Consider the process started once both inputs are initialized
             if (!started && /Stream mapping|Press \[q\]/i.test(str)) {
                 started = true;
                 resolve({ ok: true, outPath });
             }
         });
-        proc.on('error', (err) => {
-            currentRecorder = null;
-            reject(new Error(`FFmpeg error: ${err.message}`));
-        });
+        proc.on('error', (err) => { currentRecorder = null; reject(new Error(`FFmpeg error: ${err.message}`)); });
         proc.on('close', (code) => {
-            // If it closed quickly and never started, reject
             if (!started && code !== 0) {
                 currentRecorder = null;
                 const snippet = stderr.split(/\r?\n/).slice(-20).join('\n');
-                const hint = /Unknown input format/.test(stderr)
-                    ? `\nHint: Your FFmpeg does not support the selected input engine. Try installing a full Windows build with WASAPI support (e.g., https://www.gyan.dev/ffmpeg/builds/ -> "release full") or install system FFmpeg via package manager and ensure it's on PATH. Alternatively, set your input to a DirectShow device like "Stereo Mix" if available.`
-                    : '';
-                reject(new Error(`Failed to start recording (code ${code}).\n${snippet}${hint}`));
+                reject(new Error(`Failed to start recording (code ${code}).\n${snippet}`));
             }
         });
     });
@@ -359,28 +354,27 @@ registerIpc('recording:start', async (_evt, payload) => {
 
 // IPC: Stop recording
 registerIpc('recording:stop', async () => {
+    // If unified audify recorder is running
+    if (process.platform === 'win32' && isUnifiedRecording) {
+        const outPath = currentOutputPath;
+        isUnifiedRecording = false;
+        currentOutputPath = null;
+        const res = await recorder.stop();
+        return { ok: true, outPath: res?.outPath || outPath };
+    }
     if (!currentRecorder) return { ok: false };
     return new Promise((resolve) => {
         const proc = currentRecorder;
         const outPath = currentOutputPath;
         currentRecorder = null;
         currentOutputPath = null;
-        // Politely ask FFmpeg to quit
         if (process.platform === 'win32') {
-            // On Windows, send 'q' to stdin to gracefully stop
-            try {
-                proc.stdin.write('q');
-            } catch {}
+            try { proc.stdin.write('q'); } catch {}
         } else {
             proc.kill('SIGINT');
         }
-        proc.on('close', () => {
-            resolve({ ok: true, outPath });
-        });
-        setTimeout(() => {
-            // Fallback hard kill if stuck
-            try { proc.kill('SIGKILL'); } catch {}
-        }, 3000);
+        proc.on('close', () => resolve({ ok: true, outPath }));
+        setTimeout(() => { try { proc.kill('SIGKILL'); } catch {} }, 3000);
     });
 });
 
@@ -416,5 +410,39 @@ registerIpc('recorder:stop', async () => {
         return { ok: false };
     }
     const res = await recorder.stop();
+    return res;
+});
+
+// Dedicated loopback-only controls
+registerIpc('loopback:start', async () => {
+    if (process.platform !== 'win32') throw new Error('Loopback is supported only on Windows');
+    const s = await initStore();
+    const saveDir = s.get('savePath');
+    try { if (!existsSync(saveDir)) mkdirSync(saveDir, { recursive: true }); } catch {}
+    const fileName = timestampFilename('Loopback', 'wav');
+    const outPath = path.join(saveDir, fileName);
+    const res = await recorder.startLoopback({ outputPath: outPath });
+    return { ok: true, outPath: res?.outPath || outPath };
+});
+registerIpc('loopback:stop', async () => {
+    if (process.platform !== 'win32') return { ok: false };
+    const res = await recorder.stopLoopback();
+    return res;
+});
+
+// Dedicated mic-only controls
+registerIpc('mic:start', async () => {
+    if (process.platform !== 'win32') throw new Error('Mic capture via audify is supported only on Windows');
+    const s = await initStore();
+    const saveDir = s.get('savePath');
+    try { if (!existsSync(saveDir)) mkdirSync(saveDir, { recursive: true }); } catch {}
+    const fileName = timestampFilename('Mic', 'wav');
+    const outPath = path.join(saveDir, fileName);
+    const res = await recorder.startMic({ outputPath: outPath });
+    return { ok: true, outPath: res?.outPath || outPath };
+});
+registerIpc('mic:stop', async () => {
+    if (process.platform !== 'win32') return { ok: false };
+    const res = await recorder.stopMic();
     return res;
 });

@@ -1,137 +1,35 @@
 (() => {
   const $ = (sel) => document.querySelector(sel);
 
-  const micSelect = $('#micSelect');
-  const spkSelect = $('#spkSelect');
-  const loopbackTip = $('#loopbackTip');
+  // Storage controls
   const savePathInput = $('#savePath');
   const chooseFolderBtn = $('#chooseFolderBtn');
-  const formatSelect = $('#formatSelect');
-  const recordBtn = $('#recordBtn');
-  const timerEl = $('#timer');
-  const statusEl = $('#status');
-  const afterSaveEl = $('#afterSave');
-  const savedPathEl = $('#savedPath');
-  const renameInput = $('#renameInput');
-  const revealBtn = $('#revealBtn');
-  // System audio (audify) minimal UI
-  const sysStartBtn = $('#sysStartBtn');
-  const sysStopBtn = $('#sysStopBtn');
-  const sysStatus = $('#sysStatus');
 
-  let isRecording = false;
-  let timerHandle = null;
-  let startedAt = null;
-  let lastSavedPath = null;
+  // Loopback controls
+  const lbStartBtn = $('#lbStartBtn');
+  const lbStopBtn = $('#lbStopBtn');
+  const lbStatus = $('#lbStatus');
 
-  function setStatus(msg, ok = true) {
-    statusEl.textContent = msg;
-    statusEl.classList.toggle('hidden', !msg);
-    statusEl.classList.toggle('bg-green-50', ok);
-    statusEl.classList.toggle('text-green-800', ok);
-    statusEl.classList.toggle('bg-red-50', !ok);
-    statusEl.classList.toggle('text-red-800', !ok);
-  }
+  // Mic controls
+  const micStartBtn = $('#micStartBtn');
+  const micStopBtn = $('#micStopBtn');
+  const micStatus = $('#micStatus');
 
-  function updateTimer() {
-    if (!startedAt) {
-      timerEl.textContent = '00:00:00';
-      return;
-    }
-    const elapsed = Math.floor((Date.now() - startedAt) / 1000);
-    const h = String(Math.floor(elapsed / 3600)).padStart(2, '0');
-    const m = String(Math.floor((elapsed % 3600) / 60)).padStart(2, '0');
-    const s = String(elapsed % 60).padStart(2, '0');
-    timerEl.textContent = `${h}:${m}:${s}`;
-  }
+  let lbActive = false;
+  let micActive = false;
 
-  async function loadPrefsAndDevices() {
+  const setNote = (el, msg) => { if (el) el.textContent = msg; };
+
+  async function loadPrefs() {
     try {
       const prefs = await window.api.getPrefs();
-      const devices = await window.api.listDevices();
-      // Populate selects
-      function fillSelect(select, items) {
-        select.innerHTML = '';
-        items.forEach((name) => {
-          const opt = document.createElement('option');
-          opt.value = name;
-          opt.textContent = name;
-          select.appendChild(opt);
-        });
-      }
-      fillSelect(micSelect, devices.capture || ['default']);
-      fillSelect(spkSelect, devices.render || ['default']);
-
-      // Apply prefs
-      micSelect.value = prefs.micDevice || 'default';
-      spkSelect.value = prefs.speakerDevice || 'default';
       savePathInput.value = prefs.savePath || '';
-      formatSelect.value = prefs.lastFormat || 'mp3';
-
-      // Show guidance if we're on DirectShow and no likely loopback device exists
-      const isDshow = devices.engine === 'dshow';
-      const renderList = devices.render || [];
-      const hasRealLoopback = renderList.some((n) => /virtual-audio-capturer|stereo\s*mix|what\s*u\s*hear|wave\s*out\s*mix|mixagem\s*est[eé]reo|rec\.?\s*playback|loopback|voicemeeter\s*input|cable\s*output|speakers.*\(loopback\)/i.test(n));
-      loopbackTip?.classList.toggle('hidden', !(isDshow && !hasRealLoopback));
     } catch (e) {
-      setStatus('Failed to load devices or preferences', false);
+      setNote(lbStatus, 'Failed to load preferences');
     }
   }
 
-  async function startRecording() {
-    const payload = {
-      micDevice: micSelect.value,
-      speakerDevice: spkSelect.value,
-      savePath: savePathInput.value,
-      format: formatSelect.value,
-    };
-    await window.api.setPrefs({
-      micDevice: payload.micDevice,
-      speakerDevice: payload.speakerDevice,
-      savePath: payload.savePath,
-      lastFormat: payload.format,
-    });
-    setStatus('Starting…');
-    const res = await window.api.startRecording(payload);
-    if (res?.ok) {
-      isRecording = true;
-      startedAt = Date.now();
-      timerHandle = setInterval(updateTimer, 500);
-      updateTimer();
-      recordBtn.textContent = 'Stop Recording';
-      recordBtn.classList.remove('bg-indigo-600', 'hover:bg-indigo-700');
-      recordBtn.classList.add('bg-red-600', 'hover:bg-red-700');
-      afterSaveEl.classList.add('hidden');
-      setStatus('Recording…');
-    } else {
-      setStatus('Failed to start recording', false);
-    }
-  }
-
-  async function stopRecording() {
-    setStatus('Stopping…');
-    const res = await window.api.stopRecording();
-    isRecording = false;
-    if (timerHandle) clearInterval(timerHandle);
-    timerHandle = null;
-    startedAt = null;
-    updateTimer();
-    recordBtn.textContent = 'Start Recording';
-    recordBtn.classList.add('bg-indigo-600', 'hover:bg-indigo-700');
-    recordBtn.classList.remove('bg-red-600', 'hover:bg-red-700');
-    if (res?.ok && res?.outPath) {
-      lastSavedPath = res.outPath;
-      savedPathEl.textContent = res.outPath;
-      savedPathEl.title = res.outPath;
-      renameInput.value = res.outPath.split(/\\|\//).pop();
-      afterSaveEl.classList.remove('hidden');
-      setStatus('Saved successfully');
-    } else {
-      setStatus('Stopped (no file saved)', false);
-    }
-  }
-
-  // Event wiring
+  // Storage events
   chooseFolderBtn.addEventListener('click', async () => {
     const folder = await window.api.chooseFolder(savePathInput.value);
     if (folder) {
@@ -140,63 +38,47 @@
     }
   });
 
-  recordBtn.addEventListener('click', async () => {
-    if (isRecording) await stopRecording();
-    else await startRecording();
+  // Loopback events
+  lbStartBtn.addEventListener('click', async () => {
+    if (lbActive) return;
+    setNote(lbStatus, 'Starting…');
+    try {
+      const res = await window.recorderAPI.loopback.start();
+      if (res?.ok) { lbActive = true; setNote(lbStatus, 'Recording → ' + res.outPath); }
+      else setNote(lbStatus, 'Failed to start');
+    } catch (e) { setNote(lbStatus, 'Error: ' + (e?.message || e)); }
+  });
+  lbStopBtn.addEventListener('click', async () => {
+    if (!lbActive) return;
+    setNote(lbStatus, 'Stopping…');
+    try {
+      const res = await window.recorderAPI.loopback.stop();
+      lbActive = false;
+      if (res?.ok) setNote(lbStatus, 'Saved: ' + res.outPath);
+      else setNote(lbStatus, 'Stopped');
+    } catch (e) { setNote(lbStatus, 'Error: ' + (e?.message || e)); }
   });
 
-  revealBtn.addEventListener('click', async () => {
-    if (lastSavedPath) await window.api.revealFile(lastSavedPath);
+  // Mic events
+  micStartBtn.addEventListener('click', async () => {
+    if (micActive) return;
+    setNote(micStatus, 'Starting…');
+    try {
+      const res = await window.recorderAPI.mic.start();
+      if (res?.ok) { micActive = true; setNote(micStatus, 'Recording → ' + res.outPath); }
+      else setNote(micStatus, 'Failed to start');
+    } catch (e) { setNote(micStatus, 'Error: ' + (e?.message || e)); }
+  });
+  micStopBtn.addEventListener('click', async () => {
+    if (!micActive) return;
+    setNote(micStatus, 'Stopping…');
+    try {
+      const res = await window.recorderAPI.mic.stop();
+      micActive = false;
+      if (res?.ok) setNote(micStatus, 'Saved: ' + res.outPath);
+      else setNote(micStatus, 'Stopped');
+    } catch (e) { setNote(micStatus, 'Error: ' + (e?.message || e)); }
   });
 
-  renameInput.addEventListener('keydown', async (e) => {
-    if (e.key === 'Enter' && lastSavedPath) {
-      const newName = renameInput.value.trim();
-      if (!newName) return;
-      const res = await window.api.renameFile(lastSavedPath, newName);
-      if (res?.ok) {
-        lastSavedPath = res.newPath;
-        savedPathEl.textContent = res.newPath;
-        savedPathEl.title = res.newPath;
-        setStatus('Renamed');
-      } else {
-        setStatus('Rename failed: ' + (res?.error || 'Unknown error'), false);
-      }
-    }
-  });
-
-  // Init
-  window.addEventListener('DOMContentLoaded', loadPrefsAndDevices);
-
-  // System audio recorder events
-  if (sysStartBtn && sysStopBtn) {
-    sysStartBtn.addEventListener('click', async () => {
-      sysStatus.textContent = 'Starting system audio…';
-      try {
-        const res = await window.recorderAPI.start();
-        if (res?.ok) {
-          sysStatus.textContent = 'Recording system audio → system-audio.wav';
-          console.log('[renderer] System audio recording started', res.outPath);
-        } else {
-          sysStatus.textContent = 'Failed to start system audio';
-        }
-      } catch (e) {
-        sysStatus.textContent = 'Error: ' + (e?.message || e);
-      }
-    });
-    sysStopBtn.addEventListener('click', async () => {
-      sysStatus.textContent = 'Stopping…';
-      try {
-        const res = await window.recorderAPI.stop();
-        if (res?.ok) {
-          sysStatus.textContent = 'Saved: ' + res.outPath;
-          console.log('[renderer] System audio recording saved', res.outPath);
-        } else {
-          sysStatus.textContent = 'Stopped';
-        }
-      } catch (e) {
-        sysStatus.textContent = 'Error: ' + (e?.message || e);
-      }
-    });
-  }
+  window.addEventListener('DOMContentLoaded', loadPrefs);
 })();
