@@ -3,6 +3,7 @@ const { promises: fsPromises, existsSync, mkdirSync } = require('fs');
 const path = require('path');
 const os = require('os');
 const { spawn } = require('child_process');
+const recorder = require('./recorder');
 // electron-store is ESM; load via dynamic import when needed
 let store = null;
 async function initStore() {
@@ -28,6 +29,10 @@ try {
     ffmpegPath = require('ffmpeg-static');
 } catch (e) {
     ffmpegPath = null;
+}
+// Allow override via environment variable
+if (process.env.FFMPEG_BIN || process.env.FFMPEG_PATH) {
+    ffmpegPath = process.env.FFMPEG_BIN || process.env.FFMPEG_PATH;
 }
 
 // Helper to (re)register IPC handlers safely in dev
@@ -97,31 +102,137 @@ function parseWasapiDevices(stderrStr) {
     return { capture, render };
 }
 
-function buildFfmpegArgsStart({ micDevice, speakerDevice, outputPath, format = 'mp3' }) {
-    // Mix mic + speaker (loopback) into one track using amix
-    // WASAPI devices: use plain name; append :loopback for speaker
-    const micInput = micDevice && micDevice !== 'default' ? micDevice : 'default';
-    const spkInputBase = speakerDevice && speakerDevice !== 'default' ? speakerDevice : 'default';
-    const spkInput = `${spkInputBase}:loopback`;
+// Detect available input engines and build args accordingly
+/** @type {('wasapi'|'dshow'|null)} */
+let cachedEngine = null;
 
+async function detectInputEngine() {
+    if (cachedEngine) return cachedEngine;
+    const bin = ensureFfmpegAvailable();
+    // Try listing devices for WASAPI first; if unknown input format, fall back to dshow
+    const tryEngine = (engine) => new Promise((resolve) => {
+        const proc = spawn(bin, ['-hide_banner', '-f', engine, '-list_devices', 'true', '-i', 'dummy'], { windowsHide: true });
+        let stderr = '';
+        proc.stderr.on('data', (d) => (stderr += d.toString()));
+        proc.on('close', () => {
+            if (/Unknown input format/i.test(stderr) || /not found/i.test(stderr)) resolve(null);
+            else resolve(engine);
+        });
+    });
+    let engine = await tryEngine('wasapi');
+    if (!engine) engine = await tryEngine('dshow');
+    cachedEngine = engine || null;
+    return cachedEngine;
+}
+
+function parseDshowDevices(stderrStr) {
+    // Parse FFmpeg -f dshow -list_devices true output
+    const lines = stderrStr.split(/\r?\n/);
     /** @type {string[]} */
-    const args = [
-        '-hide_banner',
-        '-y',
-        // Mic input
-        '-f', 'wasapi',
-        '-i', micInput,
-        // Speaker loopback input
-        '-f', 'wasapi',
-        '-i', spkInput,
-        // Mix to 2 inputs
-        '-filter_complex', 'amix=inputs=2:duration=longest:dropout_transition=3,aresample=async=1:first_pts=0',
+    const capture = [];
+    /** @type {string[]} */
+    const render = [];
+    // Common loopback/system playback device name patterns across vendors/locales
+    const loopbackPatterns = [
+        /virtual-audio-capturer/i,
+        /stereo\s*mix/i,
+        /what\s*u\s*hear/i,
+        /wave\s*out\s*mix/i,
+        /mixagem\s*est[eé]reo/i,
+        /rec\.?\s*playback/i,
+        /loopback/i,
+        /voicemeeter\s*input/i,
+        /cable\s*output/i,
+        /speakers.*\(loopback\)/i,
     ];
+
+    for (const line of lines) {
+        // Example:  "Microphone (Realtek(R) Audio)"
+        const m = line.match(/"([^\"]+)"/);
+        if (m) {
+            const name = m[1];
+            // Heuristics: collect all audio devices as capture candidates
+            capture.push(name);
+            // Render heuristics: common system-loopback devices
+            if (loopbackPatterns.some((rx) => rx.test(name))) {
+                render.push(name);
+            }
+        }
+    }
+    if (!capture.length) capture.push('default');
+    if (!render.length) render.push('default');
+    return { capture, render };
+}
+
+async function listDevicesByEngine(engine) {
+    const bin = ensureFfmpegAvailable();
+    return new Promise((resolve) => {
+        const proc = spawn(bin, ['-hide_banner', '-f', engine, '-list_devices', 'true', '-i', 'dummy'], { windowsHide: true });
+        let stderr = '';
+        proc.stderr.on('data', (d) => (stderr += d.toString()));
+        proc.on('close', () => {
+            try {
+                if (engine === 'wasapi') return resolve(parseWasapiDevices(stderr));
+                return resolve(parseDshowDevices(stderr));
+            } catch {
+                resolve({ capture: ['default'], render: ['default'] });
+            }
+        });
+    });
+}
+
+function buildFfmpegArgsStart({ engine, micDevice, speakerDevice, outputPath, format = 'mp3', availableDevices }) {
+    // Build args based on engine and devices
+    /** @type {string[]} */
+    const args = ['-hide_banner', '-y'];
+
+    let inputs = 0;
+    if (engine === 'wasapi') {
+        const micInput = micDevice && micDevice !== 'default' ? micDevice : 'default';
+        const spkInputBase = speakerDevice && speakerDevice !== 'default' ? speakerDevice : 'default';
+        const spkInput = `${spkInputBase}:loopback`;
+        // Mic
+        args.push('-f', 'wasapi', '-i', micInput);
+        inputs += 1;
+        // Speaker
+        if (speakerDevice !== null) {
+            args.push('-f', 'wasapi', '-i', spkInput);
+            inputs += 1;
+        }
+    } else if (engine === 'dshow') {
+        // Map 'default' to first discovered
+        const firstMic = availableDevices?.capture?.[0] || 'default';
+        const loopbackRx = /virtual-audio-capturer|stereo\s*mix|what\s*u\s*hear|wave\s*out\s*mix|mixagem\s*est[eé]reo|rec\.?\s*playback|loopback|voicemeeter\s*input|cable\s*output|speakers.*\(loopback\)/i;
+        const firstSpk = availableDevices?.render?.find((n) => loopbackRx.test(n))
+            || availableDevices?.capture?.find((n) => /stereo\s*mix|what\s*u\s*hear/i.test(n))
+            || null;
+        const micName = micDevice && micDevice !== 'default' ? micDevice : firstMic;
+        const spkName = speakerDevice && speakerDevice !== 'default' ? speakerDevice : firstSpk;
+        // Mic
+        if (micName) {
+            args.push('-f', 'dshow', '-i', `audio=${micName}`);
+            inputs += 1;
+        }
+        // Speaker (only if present)
+        if (spkName) {
+            args.push('-f', 'dshow', '-i', `audio=${spkName}`);
+            inputs += 1;
+        }
+    } else {
+        throw new Error('No supported FFmpeg audio input engine found (need WASAPI or DirectShow).');
+    }
+
+    // Filters and codecs
+    if (inputs >= 2) {
+        args.push('-filter_complex', 'amix=inputs=2:duration=longest:dropout_transition=3,aresample=async=1:first_pts=0');
+    } else {
+        // Single input: keep as-is, but ensure stable timestamps
+        args.push('-af', 'aresample=async=1:first_pts=0');
+    }
 
     if (format === 'wav') {
         args.push('-c:a', 'pcm_s16le');
     } else {
-        // default mp3
         args.push('-c:a', 'libmp3lame', '-b:a', '192k');
     }
 
@@ -176,22 +287,10 @@ registerIpc('dialog:choose-folder', async (event, initialPath) => {
 
 // IPC: List devices via FFmpeg WASAPI
 registerIpc('devices:list', async () => {
-    const bin = ensureFfmpegAvailable();
-    return new Promise((resolve) => {
-        const proc = spawn(bin, ['-f', 'wasapi', '-list_devices', 'true', '-i', 'dummy'], {
-            windowsHide: true,
-        });
-        let stderr = '';
-        proc.stderr.on('data', (d) => (stderr += d.toString()));
-        proc.on('close', () => {
-            try {
-                const parsed = parseWasapiDevices(stderr);
-                resolve(parsed);
-            } catch (e) {
-                resolve({ capture: ['default'], render: ['default'] });
-            }
-        });
-    });
+    const engine = await detectInputEngine();
+    if (!engine) return { engine: null, capture: ['default'], render: ['default'] };
+    const devices = await listDevicesByEngine(engine);
+    return { engine, ...devices };
 });
 
 // IPC: Start recording
@@ -200,6 +299,11 @@ registerIpc('recording:start', async (_evt, payload) => {
         throw new Error('Recording already in progress');
     }
     const bin = ensureFfmpegAvailable();
+    const engine = await detectInputEngine();
+    const devices = engine ? await listDevicesByEngine(engine) : { capture: ['default'], render: ['default'] };
+    if (!engine) {
+        throw new Error('Your FFmpeg binary does not support WASAPI or DirectShow inputs. Please install a full Windows build (e.g., Gyan.dev "ffmpeg-release-full") or add a system FFmpeg to PATH.');
+    }
     const s = await initStore();
     // Compute output path
     const saveDir = (payload && payload.savePath) || s.get('savePath');
@@ -212,10 +316,12 @@ registerIpc('recording:start', async (_evt, payload) => {
     currentOutputPath = outPath;
 
     const args = buildFfmpegArgsStart({
+        engine,
         micDevice: payload?.micDevice || s.get('micDevice'),
         speakerDevice: payload?.speakerDevice || s.get('speakerDevice'),
         outputPath: outPath,
         format,
+        availableDevices: devices,
     });
 
     return new Promise((resolve, reject) => {
@@ -241,8 +347,11 @@ registerIpc('recording:start', async (_evt, payload) => {
             // If it closed quickly and never started, reject
             if (!started && code !== 0) {
                 currentRecorder = null;
-                const snippet = stderr.split(/\r?\n/).slice(-15).join('\n');
-                reject(new Error(`Failed to start recording (code ${code}).\n${snippet}`));
+                const snippet = stderr.split(/\r?\n/).slice(-20).join('\n');
+                const hint = /Unknown input format/.test(stderr)
+                    ? `\nHint: Your FFmpeg does not support the selected input engine. Try installing a full Windows build with WASAPI support (e.g., https://www.gyan.dev/ffmpeg/builds/ -> "release full") or install system FFmpeg via package manager and ensure it's on PATH. Alternatively, set your input to a DirectShow device like "Stereo Mix" if available.`
+                    : '';
+                reject(new Error(`Failed to start recording (code ${code}).\n${snippet}${hint}`));
             }
         });
     });
@@ -291,4 +400,21 @@ registerIpc('file:rename', async (_evt, { oldPath, newName }) => {
 registerIpc('file:reveal', async (_evt, filePath) => {
     shell.showItemInFolder(filePath);
     return true;
+});
+
+// --- IPC: System audio (WASAPI loopback via audify) ---
+registerIpc('recorder:start', async () => {
+    if (process.platform !== 'win32') {
+        throw new Error('System audio recording is supported only on Windows');
+    }
+    const res = await recorder.start();
+    return res;
+});
+
+registerIpc('recorder:stop', async () => {
+    if (process.platform !== 'win32') {
+        return { ok: false };
+    }
+    const res = await recorder.stop();
+    return res;
 });

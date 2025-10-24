@@ -19,3 +19,9 @@ contextBridge.exposeInMainWorld('api', {
   renameFile: (oldPath, newName) => ipcRenderer.invoke('file:rename', { oldPath, newName }),
   revealFile: (filePath) => ipcRenderer.invoke('file:reveal', filePath),
 });
+
+// Secure bridge for system audio recorder
+contextBridge.exposeInMainWorld('recorderAPI', {
+  start: () => ipcRenderer.invoke('recorder:start'),
+  stop: () => ipcRenderer.invoke('recorder:stop'),
+});

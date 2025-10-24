@@ -3,6 +3,7 @@
 
   const micSelect = $('#micSelect');
   const spkSelect = $('#spkSelect');
+  const loopbackTip = $('#loopbackTip');
   const savePathInput = $('#savePath');
   const chooseFolderBtn = $('#chooseFolderBtn');
   const formatSelect = $('#formatSelect');
@@ -13,6 +14,10 @@
   const savedPathEl = $('#savedPath');
   const renameInput = $('#renameInput');
   const revealBtn = $('#revealBtn');
+  // System audio (audify) minimal UI
+  const sysStartBtn = $('#sysStartBtn');
+  const sysStopBtn = $('#sysStopBtn');
+  const sysStatus = $('#sysStatus');
 
   let isRecording = false;
   let timerHandle = null;
@@ -62,6 +67,12 @@
       spkSelect.value = prefs.speakerDevice || 'default';
       savePathInput.value = prefs.savePath || '';
       formatSelect.value = prefs.lastFormat || 'mp3';
+
+      // Show guidance if we're on DirectShow and no likely loopback device exists
+      const isDshow = devices.engine === 'dshow';
+      const renderList = devices.render || [];
+      const hasRealLoopback = renderList.some((n) => /virtual-audio-capturer|stereo\s*mix|what\s*u\s*hear|wave\s*out\s*mix|mixagem\s*est[eé]reo|rec\.?\s*playback|loopback|voicemeeter\s*input|cable\s*output|speakers.*\(loopback\)/i.test(n));
+      loopbackTip?.classList.toggle('hidden', !(isDshow && !hasRealLoopback));
     } catch (e) {
       setStatus('Failed to load devices or preferences', false);
     }
@@ -156,4 +167,36 @@
 
   // Init
   window.addEventListener('DOMContentLoaded', loadPrefsAndDevices);
+
+  // System audio recorder events
+  if (sysStartBtn && sysStopBtn) {
+    sysStartBtn.addEventListener('click', async () => {
+      sysStatus.textContent = 'Starting system audio…';
+      try {
+        const res = await window.recorderAPI.start();
+        if (res?.ok) {
+          sysStatus.textContent = 'Recording system audio → system-audio.wav';
+          console.log('[renderer] System audio recording started', res.outPath);
+        } else {
+          sysStatus.textContent = 'Failed to start system audio';
+        }
+      } catch (e) {
+        sysStatus.textContent = 'Error: ' + (e?.message || e);
+      }
+    });
+    sysStopBtn.addEventListener('click', async () => {
+      sysStatus.textContent = 'Stopping…';
+      try {
+        const res = await window.recorderAPI.stop();
+        if (res?.ok) {
+          sysStatus.textContent = 'Saved: ' + res.outPath;
+          console.log('[renderer] System audio recording saved', res.outPath);
+        } else {
+          sysStatus.textContent = 'Stopped';
+        }
+      } catch (e) {
+        sysStatus.textContent = 'Error: ' + (e?.message || e);
+      }
+    });
+  }
 })();
