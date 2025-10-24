@@ -1,18 +1,77 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta
+            http-equiv="Content-Security-Policy"
+            content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' https://cdn.tailwindcss.com; connect-src 'self'"
+        />
+        <meta
+            http-equiv="X-Content-Security-Policy"
+            content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' https://cdn.tailwindcss.com; connect-src 'self'"
+        />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Call Audio Recorder</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+    </head>
+    <body class="bg-gray-50 text-gray-900">
+        <div class="max-w-3xl mx-auto p-6">
+            <header class="mb-6">
+                <h1 class="text-2xl font-semibold">Call Audio Recorder</h1>
+                <p class="text-sm text-gray-600">Record microphone + system audio (WhatsApp, Teams, Slack)</p>
+            </header>
 
-<head>
-    <meta charset="UTF-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'" />
-    <meta http-equiv="X-Content-Security-Policy" content="default-src 'self'; script-src 'self'" />
-    <title>Hello from Electron renderer!</title>
-</head>
+            <section class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 space-y-5">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label for="micSelect" class="block text-sm font-medium mb-1">Microphone</label>
+                        <select id="micSelect" class="w-full rounded-lg border-gray-300 focus:ring-2 focus:ring-indigo-500"></select>
+                    </div>
+                    <div>
+                        <label for="spkSelect" class="block text-sm font-medium mb-1">Speaker (system audio)</label>
+                        <select id="spkSelect" class="w-full rounded-lg border-gray-300 focus:ring-2 focus:ring-indigo-500"></select>
+                    </div>
+                </div>
 
-<body>
-    <h1>Hello from Electron renderer!</h1>
-    <p>👋</p>
-    <p id="info"></p>
-</body>
-<script src="./renderer.js"></script>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                    <div class="md:col-span-2">
+                        <label class="block text-sm font-medium mb-1">Save to folder</label>
+                        <div class="flex items-center gap-2">
+                            <input id="savePath" type="text" readonly class="flex-1 rounded-lg border-gray-300 bg-gray-50 px-3 py-2 text-sm" />
+                            <button id="chooseFolderBtn" class="px-3 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 text-sm">Change</button>
+                        </div>
+                    </div>
+                    <div>
+                        <label for="formatSelect" class="block text-sm font-medium mb-1">Format</label>
+                        <select id="formatSelect" class="w-full rounded-lg border-gray-300 focus:ring-2 focus:ring-indigo-500">
+                            <option value="mp3">MP3 (small)</option>
+                            <option value="wav">WAV (lossless)</option>
+                        </select>
+                    </div>
+                </div>
 
-</html>
+                <div class="flex items-center justify-between">
+                    <div class="text-lg font-mono" id="timer">00:00:00</div>
+                    <button id="recordBtn" class="px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-base font-semibold">Start Recording</button>
+                </div>
+
+                <div id="status" class="hidden p-3 rounded-lg bg-green-50 text-green-800 text-sm"></div>
+
+                <div id="afterSave" class="hidden border-t pt-4">
+                    <div class="flex items-center gap-2">
+                        <span class="text-sm text-gray-600">Saved:</span>
+                        <span id="savedPath" class="text-sm font-medium truncate"></span>
+                    </div>
+                    <div class="mt-3 flex items-center gap-2">
+                        <input id="renameInput" type="text" placeholder="Rename (enter to save)" class="flex-1 rounded-lg border-gray-300 px-3 py-2 text-sm" />
+                        <button id="revealBtn" class="px-3 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 text-sm">Open Folder</button>
+                    </div>
+                </div>
+            </section>
+
+            <footer class="mt-6 text-xs text-gray-500">Tip: Select your mic and speaker once. The app remembers your choices.</footer>
+        </div>
+
+        <script src="./renderer.js"></script>
+    </body>
+    </html>
