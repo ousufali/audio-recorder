@@ -4,15 +4,51 @@
 const os = require('os');
 const path = require('path');
 const wav = require('wav');
+const { existsSync } = require('fs');
 
 let audify = null;
 let audifyRequireError = null;
-try {
-  audify = require('audify');
-} catch (e) {
-  audify = null;
-  audifyRequireError = e;
+
+function tryLoadAudify() {
+  // 1) Normal resolution
+  try {
+    return require('audify');
+  } catch (e1) {
+    audifyRequireError = e1;
+  }
+  // 2) Resolve from asar-unpacked explicitly (packaged app)
+  try {
+    const resources = process.resourcesPath || path.resolve(process.cwd(), 'resources');
+    const candidate = path.join(resources, 'app.asar.unpacked', 'node_modules', 'audify', 'build', 'Release', 'audify.node');
+    if (existsSync(candidate)) {
+      // Make sure Windows can find any side-by-side DLLs (if any) next to the .node
+      const binDir = path.dirname(candidate);
+      if (!process.env.PATH.split(';').some(p => p.toLowerCase() === binDir.toLowerCase())) {
+        process.env.PATH = `${binDir};${process.env.PATH}`;
+      }
+      return require(candidate);
+    }
+  } catch (e2) {
+    audifyRequireError = e2;
+  }
+  // 3) Resolve relative to app.asar-unpacked by deriving from __dirname
+  try {
+    const base = __dirname.includes('app.asar') ? __dirname.replace('app.asar', 'app.asar.unpacked') : __dirname;
+    const candidate = path.join(base, 'node_modules', 'audify', 'build', 'Release', 'audify.node');
+    if (existsSync(candidate)) {
+      const binDir = path.dirname(candidate);
+      if (!process.env.PATH.split(';').some(p => p.toLowerCase() === binDir.toLowerCase())) {
+        process.env.PATH = `${binDir};${process.env.PATH}`;
+      }
+      return require(candidate);
+    }
+  } catch (e3) {
+    audifyRequireError = e3;
+  }
+  return null;
 }
+
+audify = tryLoadAudify();
 
 let rtLoopback = null;    // audify.RtAudio instance for loopback (default output device)
 let rtMic = null;         // audify.RtAudio instance for microphone (default input device)

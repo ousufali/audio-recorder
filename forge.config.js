@@ -10,12 +10,17 @@ module.exports = {
     asarUnpack: [
       "**/*.node",
       "**/*.dll",
+      // Be explicit about audify as it ships native bindings
+      "node_modules/audify/**",
       // ffmpeg-static provides a platform binary (ffmpeg.exe on Windows), ensure it's executable outside ASAR
       "node_modules/ffmpeg-static/**"
     ],
     icon: 'assets/icon',
   },
-  rebuildConfig: {},
+  // Ensure native modules are rebuilt against the Electron headers
+  rebuildConfig: {
+    onlyModules: ['audify']
+  },
   makers: [
     {
       name: '@electron-forge/maker-squirrel',

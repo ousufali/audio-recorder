@@ -4,9 +4,8 @@
   "main": "main.js",
   "scripts": {
     "start": "electron-forge start",
-    "test": "echo \"Error: no test specified\" && exit 1",
     "package": "electron-forge package",
-    "make": "electron-forge make"
+    "postinstall": "electron-rebuild -f -w audify"
   },
   "author": "",
   "license": "ISC",
@@ -17,7 +16,8 @@
     "@electron-forge/plugin-auto-unpack-natives": "^7.10.2",
     "@electron-forge/plugin-fuses": "^7.10.2",
     "@electron/fuses": "^1.8.0",
-    "electron": "^38.4.0"
+    "electron": "^38.4.0",
+    "@electron/rebuild": "^3.6.1"
   },
   "dependencies": {
     "electron-store": "^11.0.2",
