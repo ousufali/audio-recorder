@@ -9,7 +9,11 @@ module.exports = {
   makers: [
     {
       name: '@electron-forge/maker-squirrel',
-      config: {},
+      config: {
+        authors: 'audio_recorder',
+        description: 'An audio recording application',
+        exe: 'audio-recorder.exe',
+      },
     },
     {
       name: '@electron-forge/maker-zip',
