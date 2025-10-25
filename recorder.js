@@ -6,10 +6,12 @@ const path = require('path');
 const wav = require('wav');
 
 let audify = null;
+let audifyRequireError = null;
 try {
   audify = require('audify');
 } catch (e) {
   audify = null;
+  audifyRequireError = e;
 }
 
 let rtLoopback = null;    // audify.RtAudio instance for loopback (default output device)
@@ -91,7 +93,8 @@ function pumpMix() {
 async function start(opts = {}) {
   assertWindows();
   if (!audify) {
-    throw new Error('audify module not found. Please run: npm install audify');
+    const more = audifyRequireError ? ` (original error: ${audifyRequireError.message})` : '';
+    throw new Error('audify module not found. Please run: npm install audify' + more);
   }
   if (started) {
     throw new Error('Recording already in progress');
@@ -250,7 +253,10 @@ async function stop() {
 let lbWriter = null, lbStarted = false, lbOutPath = null, lbRt = null;
 async function startLoopback(opts = {}) {
   assertWindows();
-  if (!audify) throw new Error('audify module not found. Please run: npm install audify');
+  if (!audify) {
+    const more = audifyRequireError ? ` (original error: ${audifyRequireError.message})` : '';
+    throw new Error('audify module not found. Please run: npm install audify' + more);
+  }
   if (lbStarted) throw new Error('Loopback recording already in progress');
   const api = audify.RtAudioApi && audify.RtAudioApi.WINDOWS_WASAPI;
   if (api === undefined) throw new Error('audify RtAudioApi.WINDOWS_WASAPI not available');
@@ -285,7 +291,10 @@ async function stopLoopback() {
 let micWriter = null, micStarted = false, micOutPath = null, micRt = null;
 async function startMic(opts = {}) {
   assertWindows();
-  if (!audify) throw new Error('audify module not found. Please run: npm install audify');
+  if (!audify) {
+    const more = audifyRequireError ? ` (original error: ${audifyRequireError.message})` : '';
+    throw new Error('audify module not found. Please run: npm install audify' + more);
+  }
   if (micStarted) throw new Error('Mic recording already in progress');
   const api = audify.RtAudioApi && audify.RtAudioApi.WINDOWS_WASAPI;
   if (api === undefined) throw new Error('audify RtAudioApi.WINDOWS_WASAPI not available');

@@ -34,6 +34,10 @@ try {
 if (process.env.FFMPEG_BIN || process.env.FFMPEG_PATH) {
     ffmpegPath = process.env.FFMPEG_BIN || process.env.FFMPEG_PATH;
 }
+// When packaged with ASAR, ensure we point to the unpacked binary
+if (ffmpegPath && ffmpegPath.includes('app.asar')) {
+    ffmpegPath = ffmpegPath.replace('app.asar', 'app.asar.unpacked');
+}
 
 // Helper to (re)register IPC handlers safely in dev
 function registerIpc(channel, handler) {
@@ -59,7 +63,8 @@ const createWindow = () => {
     });
 
     win.once('ready-to-show', () => win.show());
-    win.loadFile('index.html');
+    // Use an absolute path so it resolves correctly when packaged in asar
+    win.loadFile(path.join(__dirname, 'index.html'));
 };
 
 function ensureFfmpegAvailable() {
