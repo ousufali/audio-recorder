@@ -50,11 +50,18 @@ let currentRecorder = null;
 let currentOutputPath = null;
 let isUnifiedRecording = false;
 
+function getIconPath() {
+    // Use .ico on Windows, .png elsewhere (Linux). macOS ignores window icon.
+    const file = process.platform === 'win32' ? 'icon.ico' : 'icon2.png';
+    return path.join(__dirname, 'assets', file);
+}
+
 const createWindow = () => {
     const win = new BrowserWindow({
         width: 1200,
         height: 900,
         show: false,
+        icon: getIconPath(),
         webPreferences: {
             contextIsolation: true,
             nodeIntegration: false,
