@@ -4,6 +4,7 @@
   // Storage controls
   const savePathInput = $('#savePath');
   const chooseFolderBtn = $('#chooseFolderBtn');
+  const openFolderBtn = $('#openFolderBtn');
 
   // Loopback controls
   const lbStartBtn = $('#lbStartBtn');
@@ -35,6 +36,14 @@
     if (folder) {
       savePathInput.value = folder;
       await window.api.setPrefs({ savePath: folder });
+    }
+  });
+
+  // Open folder event
+  openFolderBtn.addEventListener('click', async () => {
+    const path = savePathInput.value;
+    if (path) {
+      await window.api.openPath(path);
     }
   });
 

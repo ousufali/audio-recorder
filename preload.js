@@ -11,6 +11,9 @@ contextBridge.exposeInMainWorld('api', {
   // Dialogs
   chooseFolder: (initialPath) => ipcRenderer.invoke('dialog:choose-folder', initialPath),
 
+  // Opening files/folders
+  openPath: (path) => ipcRenderer.invoke('path:open', path),
+
   // Recording
   startRecording: (payload) => ipcRenderer.invoke('recording:start', payload),
   stopRecording: () => ipcRenderer.invoke('recording:stop'),

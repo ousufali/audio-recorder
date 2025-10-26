@@ -1,65 +1,191 @@
 <!DOCTYPE html>
 <html lang="en">
-    <head>
-        <meta charset="UTF-8" />
-        <meta
-            http-equiv="Content-Security-Policy"
-            content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' https://cdn.tailwindcss.com; connect-src 'self'"
-        />
-        <meta
-            http-equiv="X-Content-Security-Policy"
-            content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' https://cdn.tailwindcss.com; connect-src 'self'"
-        />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Call Audio Recorder</title>
-        <script src="https://cdn.tailwindcss.com"></script>
-    </head>
-    <body class="bg-gray-50 text-gray-900">
-        <div class="max-w-3xl mx-auto p-6">
-            <header class="mb-6">
-                <h1 class="text-2xl font-semibold">Call Audio Recorder</h1>
-                <p class="text-sm text-gray-600">Record microphone + system audio (WhatsApp, Teams, Slack)</p>
-            </header>
 
-            
-            <!-- Section 1: Storage configuration -->
-            <section class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 space-y-4 mb-6">
-                <h2 class="text-base font-medium">Storage</h2>
-                <div>
-                    <label class="block text-sm font-medium mb-1">Save to folder</label>
-                    <div class="flex items-center gap-2">
-                        <input id="savePath" type="text" readonly class="flex-1 rounded-lg border-gray-300 bg-gray-50 px-3 py-2 text-sm" />
-                        <button id="chooseFolderBtn" class="px-3 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 text-sm">Change</button>
-                    </div>
-                    <p class="mt-1 text-xs text-gray-500">Both recordings (loopback and mic) will be saved here.</p>
-                </div>
-            </section>
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'" />
+    <meta http-equiv="X-Content-Security-Policy"
+        content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Call Audio Recorder</title>
 
-            <!-- Section 2: System audio (loopback) -->
-            <section class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 space-y-3 mb-6">
-                <h2 class="text-base font-medium">System audio (loopback)</h2>
-                <p class="text-xs text-gray-500">Capturing via Windows WASAPI loopback (audify) from your default output device.</p>
-                <div class="flex gap-3 items-center">
-                    <button id="lbStartBtn" class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm">Start</button>
-                    <button id="lbStopBtn" class="px-4 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 text-sm">Stop</button>
-                    <span id="lbStatus" class="text-sm text-gray-700"></span>
-                </div>
-            </section>
+    <style>
+        :root {
+            --bg: #f9fafb;
+            --text: #111827;
+            --subtext: #6b7280;
+            --border: #e5e7eb;
+            --white: #ffffff;
+            --gray-50: #f9fafb;
+            --gray-200: #e5e7eb;
+            --gray-300: #d1d5db;
+            --gray-500: #6b7280;
+            --indigo-600: #4f46e5;
+            --indigo-700: #4338ca;
+        }
 
-            <!-- Section 3: Microphone -->
-            <section class="bg-white rounded-xl shadow-sm border border-gray-200 p-5 space-y-3">
-                <h2 class="text-base font-medium">Microphone</h2>
-                <p class="text-xs text-gray-500">Uses your default input device. Saved as WAV in the same folder.</p>
-                <div class="flex gap-3 items-center">
-                    <button id="micStartBtn" class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm">Start</button>
-                    <button id="micStopBtn" class="px-4 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 text-sm">Stop</button>
-                    <span id="micStatus" class="text-sm text-gray-700"></span>
-                </div>
-            </section>
+        body {
+            font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 0;
+        }
 
-            <footer class="mt-6 text-xs text-gray-500">Tip: Select your mic and speaker once. The app remembers your choices.</footer>
-        </div>
+        .container {
+            max-width: 768px;
+            margin: 0 auto;
+            padding: 1.5rem;
+        }
 
-        <script src="./renderer.js"></script>
-    </body>
-    </html>
+        header {
+            margin-bottom: 1.5rem;
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+        }
+
+        header p {
+            font-size: 0.875rem;
+            color: var(--subtext);
+        }
+
+        section {
+            background-color: var(--white);
+            border: 1px solid var(--border);
+            border-radius: 0.75rem;
+            padding: 1.25rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+        }
+
+        h2 {
+            font-size: 1rem;
+            font-weight: 500;
+            margin-bottom: 0.75rem;
+        }
+
+        p {
+            font-size: 0.75rem;
+            color: var(--subtext);
+            margin-bottom: 0.75rem;
+        }
+
+        label {
+            display: block;
+            font-size: 0.875rem;
+            font-weight: 500;
+            margin-bottom: 0.25rem;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            border: 1px solid var(--gray-300);
+            background-color: var(--gray-50);
+            border-radius: 0.5rem;
+            padding: 0.5rem 0.75rem;
+            font-size: 0.875rem;
+        }
+
+        .input-row {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        button {
+            font-size: 0.875rem;
+            border: none;
+            border-radius: 0.5rem;
+            padding: 0.5rem 0.75rem;
+            cursor: pointer;
+            transition: background-color 0.15s ease;
+        }
+
+        .btn-primary {
+            background-color: var(--indigo-600);
+            color: #fff;
+        }
+
+        .btn-primary:hover {
+            background-color: var(--indigo-700);
+        }
+
+        .btn-secondary {
+            background-color: var(--gray-200);
+            color: var(--text);
+        }
+
+        .btn-secondary:hover {
+            background-color: var(--gray-300);
+        }
+
+        .status {
+            font-size: 0.875rem;
+            color: var(--text);
+        }
+
+        footer {
+            font-size: 0.75rem;
+            color: var(--gray-500);
+            margin-top: 1.5rem;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>Call Audio Recorder</h1>
+            <p>Record microphone + system audio (WhatsApp, Teams, Slack)</p>
+        </header>
+
+        <!-- Section 1: Storage configuration -->
+        <section>
+            <h2>Storage</h2>
+            <div>
+            <label for="savePath">Save to folder</label>
+            <div class="input-row">
+                <input id="savePath" type="text" readonly />
+                <button id="chooseFolderBtn" class="btn-secondary">Change</button>
+                <button id="openFolderBtn" class="btn-secondary">Open</button>
+            </div>
+            <p>Both recordings (loopback and mic) will be saved here.</p>
+            </div>
+        </section>
+
+        <!-- Section 2: System audio (loopback) -->
+        <section>
+            <h2>System audio (loopback)</h2>
+            <p>Capturing via Windows WASAPI loopback (audify) from your default output device.</p>
+            <div class="input-row">
+                <button id="lbStartBtn" class="btn-primary">Start</button>
+                <button id="lbStopBtn" class="btn-secondary">Stop</button>
+                <span id="lbStatus" class="status"></span>
+            </div>
+        </section>
+
+        <!-- Section 3: Microphone -->
+        <section>
+            <h2>Microphone</h2>
+            <p>Uses your default input device. Saved as WAV in the same folder.</p>
+            <div class="input-row">
+                <button id="micStartBtn" class="btn-primary">Start</button>
+                <button id="micStopBtn" class="btn-secondary">Stop</button>
+                <span id="micStatus" class="status"></span>
+            </div>
+        </section>
+
+        <footer>
+            Tip: Select your mic and speaker once. The app remembers your choices.
+        </footer>
+    </div>
+
+    <script src="./renderer.js"></script>
+</body>
+
+</html>

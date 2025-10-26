@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "main.js",
   "scripts": {
-    "start": "electron-forge start",
+    "start": "electron-forge start --inspect-electron",
     "package": "electron-forge package",
     "postinstall": "electron-rebuild -f -w audify"
   },

@@ -1,54 +1,10 @@
 // Windows system audio (loopback) recorder using audify (WASAPI).
 // Saves to system-audio.wav in the app folder (current working directory).
 
-const os = require('os');
 const path = require('path');
 const wav = require('wav');
-const { existsSync } = require('fs');
+const audify = require('audify');
 
-let audify = null;
-let audifyRequireError = null;
-
-function tryLoadAudify() {
-  // 1) Normal resolution
-  try {
-    return require('audify');
-  } catch (e1) {
-    audifyRequireError = e1;
-  }
-  // 2) Resolve from asar-unpacked explicitly (packaged app)
-  try {
-    const resources = process.resourcesPath || path.resolve(process.cwd(), 'resources');
-    const candidate = path.join(resources, 'app.asar.unpacked', 'node_modules', 'audify', 'build', 'Release', 'audify.node');
-    if (existsSync(candidate)) {
-      // Make sure Windows can find any side-by-side DLLs (if any) next to the .node
-      const binDir = path.dirname(candidate);
-      if (!process.env.PATH.split(';').some(p => p.toLowerCase() === binDir.toLowerCase())) {
-        process.env.PATH = `${binDir};${process.env.PATH}`;
-      }
-      return require(candidate);
-    }
-  } catch (e2) {
-    audifyRequireError = e2;
-  }
-  // 3) Resolve relative to app.asar-unpacked by deriving from __dirname
-  try {
-    const base = __dirname.includes('app.asar') ? __dirname.replace('app.asar', 'app.asar.unpacked') : __dirname;
-    const candidate = path.join(base, 'node_modules', 'audify', 'build', 'Release', 'audify.node');
-    if (existsSync(candidate)) {
-      const binDir = path.dirname(candidate);
-      if (!process.env.PATH.split(';').some(p => p.toLowerCase() === binDir.toLowerCase())) {
-        process.env.PATH = `${binDir};${process.env.PATH}`;
-      }
-      return require(candidate);
-    }
-  } catch (e3) {
-    audifyRequireError = e3;
-  }
-  return null;
-}
-
-audify = tryLoadAudify();
 
 let rtLoopback = null;    // audify.RtAudio instance for loopback (default output device)
 let rtMic = null;         // audify.RtAudio instance for microphone (default input device)
@@ -98,25 +54,25 @@ function pumpMix() {
       b = Buffer.allocUnsafe(a.length); b.fill(0);
       qLoop.shift();
       const mixed = mixInt16Stereo(a, b);
-      try { wavWriter.write(mixed); } catch {}
+      try { wavWriter.write(mixed); } catch { }
     } else if (!a && b) {
       // pad loopback with silence
       a = Buffer.allocUnsafe(b.length); a.fill(0);
       qMic.shift();
       const mixed = mixInt16Stereo(a, b);
-      try { wavWriter.write(mixed); } catch {}
+      try { wavWriter.write(mixed); } catch { }
     } else {
       // both available; if sizes differ, mix min and push remainder back to front
       if (a.length === b.length) {
         qLoop.shift(); qMic.shift();
         const mixed = mixInt16Stereo(a, b);
-        try { wavWriter.write(mixed); } catch {}
+        try { wavWriter.write(mixed); } catch { }
       } else {
         const minLen = Math.min(a.length, b.length);
         const aPart = a.subarray(0, minLen);
         const bPart = b.subarray(0, minLen);
         const mixed = mixInt16Stereo(aPart, bPart);
-        try { wavWriter.write(mixed); } catch {}
+        try { wavWriter.write(mixed); } catch { }
         if (a.length > minLen) qLoop[0] = a.subarray(minLen);
         else qLoop.shift();
         if (b.length > minLen) qMic[0] = b.subarray(minLen);
@@ -129,8 +85,7 @@ function pumpMix() {
 async function start(opts = {}) {
   assertWindows();
   if (!audify) {
-    const more = audifyRequireError ? ` (original error: ${audifyRequireError.message})` : '';
-    throw new Error('audify module not found. Please run: npm install audify' + more);
+    throw new Error('audify module not found.');
   }
   if (started) {
     throw new Error('Recording already in progress');
@@ -244,8 +199,8 @@ async function start(opts = {}) {
     rtLoopback.start();
     rtMic.start();
   } catch (e) {
-    try { rtLoopback.closeStream(); } catch {}
-    try { rtMic.closeStream(); } catch {}
+    try { rtLoopback.closeStream(); } catch { }
+    try { rtMic.closeStream(); } catch { }
     throw new Error(`Failed to start RtAudio stream: ${e.message}`);
   }
 
@@ -257,10 +212,10 @@ async function start(opts = {}) {
 async function stop() {
   if (!started) return { ok: false };
   // Stop RtAudio stream
-  try { rtLoopback?.stop(); } catch {}
-  try { rtLoopback?.closeStream(); } catch {}
-  try { rtMic?.stop(); } catch {}
-  try { rtMic?.closeStream(); } catch {}
+  try { rtLoopback?.stop(); } catch { }
+  try { rtLoopback?.closeStream(); } catch { }
+  try { rtMic?.stop(); } catch { }
+  try { rtMic?.closeStream(); } catch { }
 
   // Finish WAV writer
   await new Promise((resolve) => {
@@ -290,8 +245,7 @@ let lbWriter = null, lbStarted = false, lbOutPath = null, lbRt = null;
 async function startLoopback(opts = {}) {
   assertWindows();
   if (!audify) {
-    const more = audifyRequireError ? ` (original error: ${audifyRequireError.message})` : '';
-    throw new Error('audify module not found. Please run: npm install audify' + more);
+    throw new Error('audify module not found.');
   }
   if (lbStarted) throw new Error('Loopback recording already in progress');
   const api = audify.RtAudioApi && audify.RtAudioApi.WINDOWS_WASAPI;
@@ -303,11 +257,11 @@ async function startLoopback(opts = {}) {
   const sampleRate = outDev.preferredSampleRate || 48000;
   const frameSize = 1920;
   const channels = 2, bitDepth = 16;
-  lbOutPath = opts.outputPath || path.resolve(process.cwd(), `Loopback ${new Date().toISOString().replace(/[:]/g,'-').replace(/\..+/, '')}.wav`);
+  lbOutPath = opts.outputPath || path.resolve(process.cwd(), `Loopback ${new Date().toISOString().replace(/[:]/g, '-').replace(/\..+/, '')}.wav`);
   lbWriter = new wav.FileWriter(lbOutPath, { channels, sampleRate, bitDepth });
   const loopParams = { deviceId: outDev.id, nChannels: 2, firstChannel: 0 };
-  const onLoop = (pcm) => { try { lbWriter.write(pcm); } catch {} };
-  lbRt.openStream(null, loopParams, audify.RtAudioFormat.RTAUDIO_SINT16, sampleRate, frameSize, 'LoopbackOnly', onLoop, null, 0, (t,m)=>console.warn('[loopback] warn:', t, m));
+  const onLoop = (pcm) => { try { lbWriter.write(pcm); } catch { } };
+  lbRt.openStream(null, loopParams, audify.RtAudioFormat.RTAUDIO_SINT16, sampleRate, frameSize, 'LoopbackOnly', onLoop, null, 0, (t, m) => console.warn('[loopback] warn:', t, m));
   lbRt.start();
   lbStarted = true;
   console.log('[recorder] Loopback started ->', lbOutPath);
@@ -315,9 +269,9 @@ async function startLoopback(opts = {}) {
 }
 async function stopLoopback() {
   if (!lbStarted) return { ok: false };
-  try { lbRt?.stop(); } catch {}
-  try { lbRt?.closeStream(); } catch {}
-  await new Promise((r)=>{ try { lbWriter.end(()=>r()); } catch { r(); } });
+  try { lbRt?.stop(); } catch { }
+  try { lbRt?.closeStream(); } catch { }
+  await new Promise((r) => { try { lbWriter.end(() => r()); } catch { r(); } });
   console.log('[recorder] Loopback saved ->', lbOutPath);
   const p = lbOutPath;
   lbRt = null; lbWriter = null; lbStarted = false; lbOutPath = null;
@@ -328,8 +282,7 @@ let micWriter = null, micStarted = false, micOutPath = null, micRt = null;
 async function startMic(opts = {}) {
   assertWindows();
   if (!audify) {
-    const more = audifyRequireError ? ` (original error: ${audifyRequireError.message})` : '';
-    throw new Error('audify module not found. Please run: npm install audify' + more);
+    throw new Error('audify module not found.');
   }
   if (micStarted) throw new Error('Mic recording already in progress');
   const api = audify.RtAudioApi && audify.RtAudioApi.WINDOWS_WASAPI;
@@ -342,19 +295,19 @@ async function startMic(opts = {}) {
   const frameSize = 1920;
   // If device is mono, we’ll still write stereo WAV duplicating channels
   const bitDepth = 16; let channels = inDev.inputChannels >= 2 ? 2 : 2;
-  micOutPath = opts.outputPath || path.resolve(process.cwd(), `Mic ${new Date().toISOString().replace(/[:]/g,'-').replace(/\..+/, '')}.wav`);
+  micOutPath = opts.outputPath || path.resolve(process.cwd(), `Mic ${new Date().toISOString().replace(/[:]/g, '-').replace(/\..+/, '')}.wav`);
   micWriter = new wav.FileWriter(micOutPath, { channels, sampleRate, bitDepth });
   const micParams = { deviceId: inDev.id, nChannels: Math.max(inDev.inputChannels || 1, 1), firstChannel: 0 };
   const onMic = (pcm) => {
     let buf = Buffer.from(pcm);
     if (micParams.nChannels === 1) {
       const samples = buf.length / 2; const stereo = Buffer.allocUnsafe(samples * 4);
-      for (let i=0,o=0;i<buf.length;i+=2,o+=4){ const v=buf.readInt16LE(i); stereo.writeInt16LE(v,o); stereo.writeInt16LE(v,o+2); }
+      for (let i = 0, o = 0; i < buf.length; i += 2, o += 4) { const v = buf.readInt16LE(i); stereo.writeInt16LE(v, o); stereo.writeInt16LE(v, o + 2); }
       buf = stereo;
     }
-    try { micWriter.write(buf); } catch {}
+    try { micWriter.write(buf); } catch { }
   };
-  micRt.openStream(null, micParams, audify.RtAudioFormat.RTAUDIO_SINT16, sampleRate, frameSize, 'MicOnly', onMic, null, 0, (t,m)=>console.warn('[mic] warn:', t, m));
+  micRt.openStream(null, micParams, audify.RtAudioFormat.RTAUDIO_SINT16, sampleRate, frameSize, 'MicOnly', onMic, null, 0, (t, m) => console.warn('[mic] warn:', t, m));
   micRt.start();
   micStarted = true;
   console.log('[recorder] Mic started ->', micOutPath);
@@ -362,9 +315,9 @@ async function startMic(opts = {}) {
 }
 async function stopMic() {
   if (!micStarted) return { ok: false };
-  try { micRt?.stop(); } catch {}
-  try { micRt?.closeStream(); } catch {}
-  await new Promise((r)=>{ try { micWriter.end(()=>r()); } catch { r(); } });
+  try { micRt?.stop(); } catch { }
+  try { micRt?.closeStream(); } catch { }
+  await new Promise((r) => { try { micWriter.end(() => r()); } catch { r(); } });
   console.log('[recorder] Mic saved ->', micOutPath);
   const p = micOutPath;
   micRt = null; micWriter = null; micStarted = false; micOutPath = null;

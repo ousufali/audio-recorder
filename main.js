@@ -52,8 +52,8 @@ let isUnifiedRecording = false;
 
 const createWindow = () => {
     const win = new BrowserWindow({
-        width: 900,
-        height: 640,
+        width: 1200,
+        height: 900,
         show: false,
         webPreferences: {
             contextIsolation: true,
@@ -289,6 +289,13 @@ registerIpc('dialog:choose-folder', async (event, initialPath) => {
     });
     if (result.canceled || !result.filePaths.length) return null;
     return result.filePaths[0];
+});
+
+// IPC: Open path in system file explorer
+registerIpc('path:open', async (_evt, targetPath) => {
+    if (targetPath && existsSync(targetPath)) {
+        shell.openPath(targetPath);
+    }
 });
 
 // IPC: List devices via FFmpeg WASAPI
